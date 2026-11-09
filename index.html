@@ -561,6 +561,11 @@
         </div>
       </div>
     </div>
+    <div class="card" style="font-size:12.5px;color:#64748b;text-align:center">
+       <button id="btnInstallPWA" class="btn secondary" style="display:none; width:100%; margin-top:10px;">
+        📲 Instal Aplikasi ke Perangkat
+        </button>
+    </div>
     <div class="card" style="font-size:12.5px;color:#64748b;text-align:center">© 2026 Si B3RSIH · Untuk bantuan hubungi administrator rumah sakit.</div>
   </section>
 </main>
@@ -1768,6 +1773,30 @@ function renderLimbahChart(d) {
     datasets: [{ label: 'Jumlah', data: d.limbahStats.map(function (x) { return x.total; }), backgroundColor: '#0d9488', borderRadius: 6 }]
   }, { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
 }
+
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Cegah banner otomatis bawaan browser muncul (jika ada)
+  e.preventDefault();
+  // Simpan event agar bisa dipicu lewat tombol manual
+  deferredPrompt = e;
+
+  // Tampilkan tombol instal yang kita buat tadi
+  var installBtn = document.getElementById('btnInstallPWA');
+  if (installBtn) {
+    installBtn.style.display = 'inline-flex';
+    installBtn.onclick = function() {
+      installBtn.style.display = 'none';
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('Pengguna menerima instalasi PWA');
+        }
+        deferredPrompt = null;
+      });
+    };
+  }
+});
 
 init();
 </script>
