@@ -568,7 +568,7 @@
 <nav class="bottomnav" id="bottomnav"></nav>
 
 <div id="toast"></div>
-
+<script src="db.js"></script>
 <script>
 /* ============================================================
    Si B3RSIH - Frontend VIA Github
@@ -590,7 +590,7 @@ function gs(fn) {
 function getSavedEmail() {
   let email = localStorage.getItem('sib3rsih_user_email');
   if (!email) {
-    email = prompt("Masukkan email Google terdaftar Anda untuk akses aplikasi:");
+    email = prompt("Masukkan email Google terdaftar Anda:");
     if (email) {
       localStorage.setItem('sib3rsih_user_email', email.toLowerCase().trim());
     }
@@ -599,30 +599,168 @@ function getSavedEmail() {
 }
 
 // Pengganti google.script.run khusus versi GitHub Pages
-function gs(fn) {
+/* ============================================================
+   FUNGSI gs() DENGAN DUKUNGAN OFFLINE & INDEXEDDB CACHING
+   ============================================================ */
+async function gs(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
   var action = fn;
   var payload = args.length === 1 ? args[0] : (args.length > 1 ? args : null);
+  var email = getSavedEmail();
+  
+  // Kunci unik untuk caching IndexedDB
+  var cacheKey = action + '_' + email + '_' + JSON.stringify(payload || {});
 
-  return fetch(GAS_API_URL, {
-    method: 'POST',
-    mode: 'cors',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({
-      action: action,
-      email: getSavedEmail(),
-      payload: payload
-    })
-  })
-  .then(response => response.json())
-  .then(res => {
+  // 1. JIKA SERVER SECARA FISIK OFFLINE / TIDAK ADA KONEKSI
+  if (!navigator.onLine) {
+    // Jika panggilan fungsi bersifat READ (Mengambil data)
+    if (action.startsWith('get')) {
+      var cached = await getCacheData(cacheKey);
+      if (cached) {
+        toast('Mode Offline: Menampilkan data tersimpan.', false);
+        return cached;
+      } else {
+        throw new Error('Offline: Data belum pernah di-cache sebelumnya.');
+      }
+    }
+    
+    // Jika panggilan fungsi bersifat WRITE (Simpan/Input/Update)
+    if (action.startsWith('save') || action.startsWith('update')) {
+      await addPendingSync(action, payload);
+      updateOfflineBadgeUI();
+      toast('Mode Offline: Data disimpan di perangkat & akan dikirim otomatis saat online.');
+      return { ok: true, offlineSaved: true };
+    }
+  }
+
+  // 2. JIKA ONLINE: KIRIM LANGSUNG KE GAS API
+  try {
+    const response = await fetch(GAS_API_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: action,
+        email: email,
+        payload: payload
+      })
+    });
+
+    const res = await response.json();
     if (res.status === 'success') {
+      // Simpan/Perbarui data hasil get ke IndexedDB
+      if (action.startsWith('get')) {
+        await setCacheData(cacheKey, res.data);
+      }
       return res.data;
     } else {
       throw new Error(res.message);
     }
-  });
+  } catch (err) {
+    // Fallback jika fetch gagal (misal koneksi mendadak putus pertengahan jalan)
+    if (action.startsWith('get')) {
+      var cachedData = await getCacheData(cacheKey);
+      if (cachedData) {
+        toast('Jaringan tidak stabil: Menampilkan data lokal.');
+        return cachedData;
+      }
+    } else if (action.startsWith('save') || action.startsWith('update')) {
+      await addPendingSync(action, payload);
+      updateOfflineBadgeUI();
+      toast('Koneksi terputus: Data tersimpan di antrean offline lokal.');
+      return { ok: true, offlineSaved: true };
+    }
+    throw err;
+  }
 }
+
+/* ============================================================
+   AUTOMATIC SYNC ENGINE (TRIGGER SAAT ONLINE)
+   ============================================================ */
+async function processOfflineQueue() {
+  if (!navigator.onLine) return;
+  
+  const pendingList = await getPendingSyncList();
+  if (!pendingList || pendingList.length === 0) return;
+
+  toast('🔌 Online kembali! Mengirim ' + pendingList.length + ' data tersimpan ke server...', false);
+
+  for (let item of pendingList) {
+    try {
+      const response = await fetch(GAS_API_URL, {
+        method: 'POST',
+        mode: 'cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: item.action,
+          email: getSavedEmail(),
+          payload: item.payload
+        })
+      });
+
+      const res = await response.json();
+      if (res.status === 'success') {
+        // Hapus dari antrean jika berhasil dikirim
+        await removePendingSync(item.id);
+      }
+    } catch (e) {
+      console.error('Gagal sync item ID ' + item.id, e);
+    }
+  }
+
+  updateOfflineBadgeUI();
+  toast('✅ Semua data offline berhasil dikirim & disinkronkan ke server!');
+  
+  // Reload tampilan aktif agar data paling segar dari GAS muncul
+  var activeView = document.querySelector('.view.active');
+  if (activeView) {
+    var vId = activeView.id.replace('view-', '');
+    showView(vId);
+  }
+}
+
+// LISTENER STATUS NETWORK
+window.addEventListener('online', () => {
+  updateNetworkStatusUI(true);
+  processOfflineQueue();
+});
+
+window.addEventListener('offline', () => {
+  updateNetworkStatusUI(false);
+});
+
+async function updateOfflineBadgeUI() {
+  const pending = await getPendingSyncList();
+  let badge = document.getElementById('offlineSyncBadge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'offlineSyncBadge';
+    badge.style.cssText = 'position:fixed;bottom:70px;right:16px;background:#f59e0b;color:#fff;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:700;z-index:999;box-shadow:0 2px 8px rgba(0,0,0,0.2);display:none;align-items:center;gap:6px;';
+    document.body.appendChild(badge);
+  }
+  
+  if (pending.length > 0) {
+    badge.innerHTML = '⏳ ' + pending.length + ' Antrean Offline';
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function updateNetworkStatusUI(isOnline) {
+  if (!isOnline) {
+    toast('📡 Anda sedang Offline. Aplikasi menggunakan data lokal.', true);
+  }
+  updateOfflineBadgeUI();
+}
+
+// Jalankan auto-sync saat aplikasi dibuka jika ada sisa antrean
+document.addEventListener('DOMContentLoaded', () => {
+  updateOfflineBadgeUI();
+  if (navigator.onLine) {
+    processOfflineQueue();
+  }
+});
   
 function toast(msg, err) {
   var t = document.getElementById('toast');
