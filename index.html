@@ -248,6 +248,13 @@
   <div id="navMenu"></div>
   <div class="nav-section" id="navMgmtSection" style="display:none">Managemen</div>
   <div id="navMgmt"></div>
+  <!-- Footer Sidebar untuk Tombol PWA -->
+  <div style="margin-top: auto; padding: 12px 16px; border-top: 1px solid #f1f5f9; text-align: center;">
+    <button id="btnInstallPWA" class="btn secondary" style="display:none; width:100%; font-size:12px; padding:8px; justify-content:center;">
+      📲 Instal Aplikasi PWA
+    </button>
+    <div style="font-size:10px; color:#94a3b8; margin-top:6px;">Si B3RSIH v1.1.0</div>
+  </div>
 </aside>
 
 <main>
@@ -560,11 +567,6 @@
           </ol>
         </div>
       </div>
-    </div>
-    <div class="card" style="font-size:12.5px;color:#64748b;text-align:center">© 2026 Si B3RSIH · Untuk bantuan hubungi administrator rumah sakit.
-       <button id="btnInstallPWA" class="btn secondary" style="display:none; width:100%; margin-top:10px;">
-        📲 Instal Aplikasi ke Perangkat
-        </button>
     </div>
     <div class="card" style="font-size:12.5px;color:#64748b;text-align:center">© 2026 Si B3RSIH · Untuk bantuan hubungi administrator rumah sakit.</div>
   </section>
@@ -1776,12 +1778,8 @@ function renderLimbahChart(d) {
 
 let deferredPrompt;
 window.addEventListener('beforeinstallprompt', (e) => {
-  // Cegah banner otomatis bawaan browser muncul (jika ada)
   e.preventDefault();
-  // Simpan event agar bisa dipicu lewat tombol manual
   deferredPrompt = e;
-
-  // Tampilkan tombol instal yang kita buat tadi
   var installBtn = document.getElementById('btnInstallPWA');
   if (installBtn) {
     installBtn.style.display = 'inline-flex';
@@ -1790,7 +1788,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
       deferredPrompt.prompt();
       deferredPrompt.userChoice.then((choiceResult) => {
         if (choiceResult.outcome === 'accepted') {
-          console.log('Pengguna menerima instalasi PWA');
+          console.log('PWA berhasil diinstal');
         }
         deferredPrompt = null;
       });
